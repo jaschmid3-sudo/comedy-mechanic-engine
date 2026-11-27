@@ -1,16 +1,12 @@
 import os
-import asyncio
 import pandas as pd
 from pydantic import BaseModel, Field
-from openai import AsyncOpenAI
-from dotenv import load_dotenv
-from tqdm.asyncio import tqdm_asyncio
-
-load_dotenv()
-client = AsyncOpenAI()
+import ollama
+from tqdm import tqdm
 
 INPUT_FILE = "data/top_jokes.parquet"
 OUTPUT_FILE = "data/structured_jokes.parquet"
+MODEL_NAME = "qwen2.5:3b"
 
 
 class ComedicBlueprint(BaseModel):
@@ -33,46 +29,39 @@ Analyze the provided joke and strip away its surface topic (e.g., bars, doctors,
 Focus strictly on the logical pivot that creates surprise."""
 
 
-async def analyze_joke(sem: asyncio.Semaphore, row: dict) -> dict:
-    async with sem:
+def main(max_jokes: int = 300):
+    df = pd.read_parquet(INPUT_FILE).head(max_jokes)
+    results = []
+
+    for row in tqdm(df.to_dict(orient="records"), desc="Extracting mechanics (Local LLM)"):
         try:
-            response = await client.beta.chat.completions.parse(
-                model="gpt-4o-mini",
+            response = ollama.chat(
+                model=MODEL_NAME,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": row["full_text"]},
                 ],
-                response_format=ComedicBlueprint,
-                temperature=0.1,
+                format=ComedicBlueprint.model_json_schema(),
+                options={"temperature": 0.1},
             )
-            parsed = response.choices[0].message.parsed
-            return {
-                **row,
-                "comedic_device": parsed.comedic_device,
-                "abstract_setup": parsed.abstract_setup,
-                "incongruity_pivot": parsed.incongruity_pivot,
-                "structural_formula": parsed.structural_formula,
-                # Combined text specifically designed for structural embedding
-                "embedding_text": f"[{parsed.comedic_device}] Setup: {parsed.abstract_setup} | Pivot: {parsed.incongruity_pivot} | Formula: {parsed.structural_formula}",
-            }
+            parsed = ComedicBlueprint.model_validate_json(response.message.content)
+            results.append(
+                {
+                    **row,
+                    "comedic_device": parsed.comedic_device,
+                    "abstract_setup": parsed.abstract_setup,
+                    "incongruity_pivot": parsed.incongruity_pivot,
+                    "structural_formula": parsed.structural_formula,
+                    "embedding_text": f"[{parsed.comedic_device}] Setup: {parsed.abstract_setup} | Pivot: {parsed.incongruity_pivot} | Formula: {parsed.structural_formula}",
+                }
+            )
         except Exception as e:
             print(f"Failed on joke {row['id']}: {e}")
-            return None
 
-
-async def main(concurrency: int = 20):
-    df = pd.read_parquet(INPUT_FILE)
-    records = df.to_dict(orient="records")
-    sem = asyncio.Semaphore(concurrency)
-
-    tasks = [analyze_joke(sem, row) for row in records]
-    results = await tqdm_asyncio.gather(*tasks, desc="Extracting comedic mechanics")
-
-    clean_results = [r for r in results if r is not None]
-    out_df = pd.DataFrame(clean_results)
+    out_df = pd.DataFrame(results)
     out_df.to_parquet(OUTPUT_FILE, index=False)
     print(f"Saved {len(out_df)} structured blueprints to {OUTPUT_FILE}")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main(max_jokes=300)
