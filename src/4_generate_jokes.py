@@ -1,12 +1,9 @@
 import pandas as pd
-from openai import OpenAI
-from dotenv import load_dotenv
-
-load_dotenv()
-client = OpenAI()
+import ollama
 
 CLUSTERED_FILE = "outputs/clustered_jokes.parquet"
 STATS_FILE = "outputs/top_formulas.csv"
+MODEL_NAME = "qwen2.5:3b"
 
 
 def generate_from_top_cluster(target_topic: str, cluster_rank: int = 0, num_jokes: int = 3):
@@ -17,7 +14,6 @@ def generate_from_top_cluster(target_topic: str, cluster_rank: int = 0, num_joke
     formula = stats.iloc[cluster_rank]["sample_formula"]
     device = stats.iloc[cluster_rank]["dominant_device"]
 
-    # Get top 4 highest-scoring real examples inside this winning cluster
     exemplars = (
         df[df["cluster_id"] == best_cluster_id]
         .sort_values(by="score", ascending=False)
@@ -42,14 +38,14 @@ Study how these top-scoring examples execute the pivot, then replicate that exac
 {examples_block}
 """
 
-    response = client.chat.completions.create(
-        model="gpt-4o",
+    response = ollama.chat(
+        model=MODEL_NAME,
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.85,
+        options={"temperature": 0.85},
     )
 
-    print(f"=== Generated Jokes (Using Cluster #{best_cluster_id}: {device}) ===\n")
-    print(response.choices[0].message.content)
+    print(f"\n=== Generated Jokes (Using Cluster #{best_cluster_id}: {device}) ===\n")
+    print(response.message.content)
 
 
 if __name__ == "__main__":
