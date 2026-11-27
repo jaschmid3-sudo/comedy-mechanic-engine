@@ -1,10 +1,6 @@
 {
-  "name": "Comedy Mechanic Engine",
+  "name": "Comedy Mechanic Engine (Free Local LLM)",
   "image": "mcr.microsoft.com/devcontainers/python:3.11",
-  "postCreateCommand": "pip install -r requirements.txt",
-  "secrets": {
-    "OPENAI_API_KEY": {
-      "description": "OpenAI API key for structural extraction and joke generation"
-    }
-  }
+  "postCreateCommand": "pip install -r requirements.txt && curl -fsSL https://ollama.com/install.sh | sh && (ollama serve &) && sleep 5 && ollama pull qwen2.5:3b",
+  "postStartCommand": "pgrep ollama || (ollama serve &)"
 }
